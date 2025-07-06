@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { User, Send, Loader2, Mic, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { processInstruction } from '@/app/actions';
+import { processInstruction, getSpokenMessage } from '@/app/actions';
 import { TrinityLogo } from './icons';
 
 interface Message {
@@ -147,13 +147,13 @@ export function ChatPanel() {
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error(error);
-      // We call processInstruction here to get a spoken version of the error message
-      const errResponse = await processInstruction("An error occurred. Failed to process your request. Please try again.");
-      const assistantMessage: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: errResponse.response,
-        audio: errResponse.audio
+      const errorMessage = "An error occurred. Failed to process your request. Please try again.";
+      const { audio } = await getSpokenMessage(errorMessage);
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: errorMessage,
+        audio,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } finally {
@@ -240,13 +240,13 @@ export function ChatPanel() {
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Instruct Trinity to modify her code..."
+            placeholder="Type your message or command here..."
             className="flex-1 resize-none"
             rows={1}
             onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    // a bit of a hack to get the form to submit
+                    // Programmatically submit the form
                     (e.target as HTMLTextAreaElement).form?.requestSubmit();
                 }
             }}

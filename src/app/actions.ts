@@ -45,7 +45,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { User, Send, Loader2, Mic, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { processInstruction } from '@/app/actions';
+import { getSpokenMessage, processInstruction } from '@/app/actions';
 import { TrinityLogo } from './icons';
 
 interface Message {
@@ -184,12 +184,13 @@ export function ChatPanel() {
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error(error);
-      const errToast = await processInstruction("An error occurred. Failed to process your request. Please try again.");
-      const assistantMessage: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: errToast.response,
-        audio: errToast.audio,
+      const errorMessage = "An error occurred. Failed to process your request. Please try again.";
+      const { audio } = await getSpokenMessage(errorMessage);
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: errorMessage,
+        audio,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } finally {
@@ -276,7 +277,7 @@ export function ChatPanel() {
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Instruct Trinity to modify her code..."
+            placeholder="Type your message or command here..."
             className="flex-1 resize-none"
             rows={1}
             onKeyDown={(e) => {
@@ -335,6 +336,7 @@ export function MonitoringPanel() {
   const [storageData, setStorageData] = useState<ChartData[]>([]);
 
   useEffect(() => {
+    // Generate initial data on the client to avoid hydration mismatch
     const initialCpuData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 50) + 20 }));
     const initialMemoryData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 40) + 40 }));
     const initialStorageData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 10) + 75 }));
@@ -351,7 +353,7 @@ export function MonitoringPanel() {
     return () => clearInterval(interval);
   }, []);
 
-  const renderChart = (data: any[], gradientId: string) => (
+  const renderChart = (data: ChartData[], gradientId: string) => (
     <div className="h-[100px] -mx-4">
       <ChartContainer config={chartConfig}>
         <AreaChart accessibilityLayer data={data} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
@@ -424,6 +426,17 @@ const instructionSchema = z.string().min(1, "Instruction cannot be empty.");
 
 type InstructionResult = { response: string, code?: string, filePath?: string, audio?: string };
 
+export async function getSpokenMessage(message: string): Promise<{ audio?: string }> {
+  try {
+    if (!message) return { audio: undefined };
+    const { media } = await textToSpeech(message);
+    return { audio: media };
+  } catch (ttsError) {
+    console.error("Error generating speech:", ttsError);
+    return { audio: undefined };
+  }
+}
+
 export async function processInstruction(instruction: string): Promise<InstructionResult> {
   const parsedInstruction = instructionSchema.safeParse(instruction);
 
@@ -433,10 +446,6 @@ export async function processInstruction(instruction: string): Promise<Instructi
 
   const createResponse = async (text: string, code?: string, filePath?: string): Promise<InstructionResult> => {
     try {
-      // Don't generate audio for the simulated error message from the client
-      if (text.startsWith("An error occurred")) {
-        return { response: text, code, filePath, audio: undefined };
-      }
       const { media } = await textToSpeech(text);
       return { response: text, code, filePath, audio: media };
     } catch (ttsError) {
