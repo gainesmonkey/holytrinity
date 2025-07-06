@@ -212,11 +212,6 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 import { Badge } from '@/components/ui/badge';
 import { Cpu, MemoryStick, Database, ShieldCheck } from 'lucide-react';
 
-const generateData = () => Array.from({ length: 10 }, (_, i) => ({
-  time: i.toString(),
-  value: Math.floor(Math.random() * 50) + 20,
-}));
-
 const chartConfig = {
   value: {
     label: "Usage",
@@ -234,14 +229,21 @@ const StatusItem = ({ title, value, variant }: { title: string; value: string; v
 );
 
 export function MonitoringPanel() {
-  const [cpuData, setCpuData] = useState(generateData());
-  const [memoryData, setMemoryData] = useState(generateData());
-  const [storageData, setStorageData] = useState(generateData());
+  const [cpuData, setCpuData] = useState([]);
+  const [memoryData, setMemoryData] = useState([]);
+  const [storageData, setStorageData] = useState([]);
 
   useEffect(() => {
+    const initialCpuData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 50) + 20 }));
+    const initialMemoryData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 40) + 40 }));
+    const initialStorageData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 10) + 75 }));
+
+    setCpuData(initialCpuData);
+    setMemoryData(initialMemoryData);
+    setStorageData(initialStorageData);
+
     const interval = setInterval(() => {
-      const newValue = () => Math.floor(Math.random() * 50) + 20;
-      setCpuData(prev => [...prev.slice(1), { time: 'now', value: newValue() }]);
+      setCpuData(prev => [...prev.slice(1), { time: 'now', value: Math.floor(Math.random() * 50) + 20 }]);
       setMemoryData(prev => [...prev.slice(1), { time: 'now', value: Math.floor(Math.random() * 40) + 40 }]);
       setStorageData(prev => [...prev.slice(1), { time: 'now', value: Math.floor(Math.random() * 10) + 75 }]);
     }, 2500);
