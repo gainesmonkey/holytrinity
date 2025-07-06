@@ -1,0 +1,16 @@
+steps:
+- name: 'gcr.io/cloud-builders/npm'
+  id: 'Install Dependencies'
+  args: ['install']
+
+- name: 'gcr.io/cloud-builders/npm'
+  id: 'Run Linter'
+  args: ['run', 'lint']
+
+- name: 'gcr.io/cloud-builders/npm'
+  id: 'Run Type Check'
+  args: ['run', 'typecheck']
+
+- name: 'gcr.io/cloud-builders/npm'
+  id: 'Build Application'
+  args: ['run', 'build']
