@@ -2,6 +2,7 @@
 
 import { generateImprovementCode } from "@/ai/flows/generate-improvement-code";
 import { findFileToModify } from "@/ai/flows/find-file-to-modify";
+import { textToSpeech } from "@/ai/flows/text-to-speech";
 import { z } from "zod";
 
 // In a real application, this would be a dynamic file reading system.
@@ -41,7 +42,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { User, Send, Loader2 } from 'lucide-react';
+import { User, Send, Loader2, Mic, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { processInstruction } from '@/app/actions';
@@ -53,13 +54,14 @@ interface Message {
   content: string;
   code?: string;
   filePath?: string;
+  audio?: string;
 }
 
 const initialMessages: Message[] = [
   {
     id: '1',
     role: 'assistant',
-    content: "Hello! I am Trinity, a self-improving AI agent. How can I assist you today? I can analyze and modify my own source code based on your instructions.",
+    content: "Hello! I am Trinity, a self-improving AI agent. How can I assist you today? I can analyze and modify my own source code based on your instructions. You can also use the microphone to speak to me.",
   },
 ];
 
@@ -67,8 +69,11 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -81,6 +86,81 @@ export function ChatPanel() {
       }
     }
   }, [messages]);
+
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role === 'assistant' && lastMessage.audio && audioRef.current) {
+        audioRef.current.src = lastMessage.audio;
+        audioRef.current.play().catch(e => console.error("Audio autoplay failed:", e));
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            setIsListening(true);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[event.results.length - 1][0].transcript.trim();
+            setInput(transcript);
+        };
+
+        recognition.onerror = (event: any) => {
+            console.error('Speech recognition error', event.error);
+            toast({
+                variant: "destructive",
+                title: "Speech Recognition Error",
+                description: event.error === 'not-allowed' ? "Microphone access denied." : "An error occurred during speech recognition.",
+            });
+            setIsListening(false);
+        };
+        
+        recognitionRef.current = recognition;
+
+    } else {
+        console.warn("Speech recognition not supported by this browser.");
+    }
+
+    return () => {
+        recognitionRef.current?.abort();
+    };
+  }, [toast]);
+
+  const handleListen = () => {
+    if (!recognitionRef.current) {
+        toast({
+            variant: "destructive",
+            title: "Browser Not Supported",
+            description: "Your browser does not support speech recognition.",
+        });
+        return;
+    }
+    if (isListening) {
+        recognitionRef.current?.stop();
+    } else {
+        recognitionRef.current?.start();
+    }
+  };
+
+  const handleReplayAudio = (audioSrc: string) => {
+    if (audioRef.current) {
+        audioRef.current.src = audioSrc;
+        audioRef.current.play().catch(e => console.error("Audio replay failed:", e));
+    }
+  };
+
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -99,15 +179,19 @@ export function ChatPanel() {
         content: result.response,
         code: result.code,
         filePath: result.filePath,
+        audio: result.audio,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error(error);
-      toast({
-        variant: "destructive",
-        title: "An error occurred",
-        description: "Failed to process your request. Please try again.",
-      });
+      const errToast = await processInstruction("An error occurred. Failed to process your request. Please try again.");
+      const assistantMessage: Message = { 
+        id: (Date.now() + 1).toString(), 
+        role: 'assistant', 
+        content: errToast.response,
+        audio: errToast.audio,
+      };
+      setMessages(prev => [...prev, assistantMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -137,6 +221,17 @@ export function ChatPanel() {
                   : 'bg-muted'
               )}>
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                {message.audio && message.role === 'assistant' && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="mt-2 h-7 w-7 text-muted-foreground"
+                        onClick={() => handleReplayAudio(message.audio!)}
+                    >
+                        <Volume2 className="h-4 w-4" />
+                        <span className="sr-only">Play audio</span>
+                    </Button>
+                )}
                 {message.code && (
                   <div className="mt-4 bg-background/50 rounded-md border">
                     {message.filePath && (
@@ -187,18 +282,22 @@ export function ChatPanel() {
             onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    // a bit of a hack to get the form to submit
                     (e.target as HTMLTextAreaElement).form?.requestSubmit();
                 }
             }}
             disabled={isLoading}
           />
+          <Button type="button" size="icon" variant="ghost" onClick={handleListen} disabled={isLoading}>
+            {isListening ? <Mic className="h-5 w-5 text-primary animate-pulse" /> : <Mic className="h-5 w-5" />}
+            <span className="sr-only">{isListening ? 'Stop listening' : 'Start listening'}</span>
+          </Button>
           <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
             {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             <span className="sr-only">Send</span>
           </Button>
         </form>
       </div>
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
 }
@@ -211,6 +310,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Badge } from '@/components/ui/badge';
 import { Cpu, MemoryStick, Database, ShieldCheck } from 'lucide-react';
+
+type ChartData = { time: string, value: number };
 
 const chartConfig = {
   value: {
@@ -229,9 +330,9 @@ const StatusItem = ({ title, value, variant }: { title: string; value: string; v
 );
 
 export function MonitoringPanel() {
-  const [cpuData, setCpuData] = useState([]);
-  const [memoryData, setMemoryData] = useState([]);
-  const [storageData, setStorageData] = useState([]);
+  const [cpuData, setCpuData] = useState<ChartData[]>([]);
+  const [memoryData, setMemoryData] = useState<ChartData[]>([]);
+  const [storageData, setStorageData] = useState<ChartData[]>([]);
 
   useEffect(() => {
     const initialCpuData = Array.from({ length: 10 }, (_, i) => ({ time: i.toString(), value: Math.floor(Math.random() * 50) + 20 }));
@@ -298,7 +399,7 @@ export function MonitoringPanel() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <MemoryStick className="w-5 h-5 text-muted-foreground" /> Memory
-          </CardTitle>
+          </Title>
            <span className="text-2xl font-bold font-mono">{memoryData.length > 0 ? \`\${memoryData[memoryData.length - 1].value}%\` : '...'}</span>
         </CardHeader>
         <CardContent>{renderChart(memoryData, 'fillMemory')}</CardContent>
@@ -308,7 +409,7 @@ export function MonitoringPanel() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Database className="w-5 h-5 text-muted-foreground" /> Storage
-          </CardTitle>
+          </Title>
            <span className="text-2xl font-bold font-mono">{storageData.length > 0 ? \`\${storageData[storageData.length - 1].value}%\` : '...'}</span>
         </CardHeader>
         <CardContent>{renderChart(storageData, 'fillStorage')}</CardContent>
@@ -321,12 +422,29 @@ export function MonitoringPanel() {
 
 const instructionSchema = z.string().min(1, "Instruction cannot be empty.");
 
-export async function processInstruction(instruction: string): Promise<{ response: string, code?: string, filePath?: string }> {
+type InstructionResult = { response: string, code?: string, filePath?: string, audio?: string };
+
+export async function processInstruction(instruction: string): Promise<InstructionResult> {
   const parsedInstruction = instructionSchema.safeParse(instruction);
 
   if (!parsedInstruction.success) {
     throw new Error("Invalid instruction provided.");
   }
+
+  const createResponse = async (text: string, code?: string, filePath?: string): Promise<InstructionResult> => {
+    try {
+      // Don't generate audio for the simulated error message from the client
+      if (text.startsWith("An error occurred")) {
+        return { response: text, code, filePath, audio: undefined };
+      }
+      const { media } = await textToSpeech(text);
+      return { response: text, code, filePath, audio: media };
+    } catch (ttsError) {
+      console.error("Error generating speech:", ttsError);
+      return { response: text, code, filePath, audio: undefined }; // return text even if TTS fails
+    }
+  };
+
 
   try {
     // Step 1: Find out which file to modify
@@ -337,9 +455,7 @@ export async function processInstruction(instruction: string): Promise<{ respons
 
     const sourceCode = modifiableFiles[filePath];
     if (!sourceCode) {
-       return {
-         response: `I apologize, but I was unable to find a suitable file to modify for your request. I can currently only modify one of the following files: ${Object.keys(modifiableFiles).join(', ')}.`,
-       };
+       return createResponse(`I apologize, but I was unable to find a suitable file to modify for your request. I can currently only modify one of the following files: ${Object.keys(modifiableFiles).join(', ')}.`);
     }
     
     // Step 2: Generate the improved code for that file
@@ -348,17 +464,15 @@ export async function processInstruction(instruction: string): Promise<{ respons
       instructions: parsedInstruction.data,
     });
     
-    return {
-      response: "I have analyzed the request and generated the following code modifications. This is a simulation of my self-improvement capability. The code below can be reviewed and applied.",
-      code: result.improvedCode,
-      filePath: filePath,
-    };
+    return createResponse(
+      "I have analyzed the request and generated the following code modifications. This is a simulation of my self-improvement capability. The code below can be reviewed and applied.",
+      result.improvedCode,
+      filePath
+    );
 
   } catch (error) {
     console.error("Error processing instruction with GenAI:", error);
     // In a real app, you might want to call another AI flow to analyze the error.
-    return {
-      response: "I encountered an error while processing your request. My apologies. I will log this for my own learning process. Please try rephrasing your instruction."
-    };
+    return createResponse("I encountered an error while processing your request. My apologies. I will log this for my own learning process. Please try rephrasing your instruction.");
   }
 }
