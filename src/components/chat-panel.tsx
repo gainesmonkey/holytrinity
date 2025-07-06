@@ -16,6 +16,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   code?: string;
+  filePath?: string;
 }
 
 const initialMessages: Message[] = [
@@ -60,7 +61,8 @@ export function ChatPanel() {
         id: (Date.now() + 1).toString(), 
         role: 'assistant', 
         content: result.response,
-        code: result.code
+        code: result.code,
+        filePath: result.filePath,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
@@ -100,7 +102,12 @@ export function ChatPanel() {
               )}>
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                 {message.code && (
-                  <div className="mt-4 bg-background/50 rounded-md">
+                  <div className="mt-4 bg-background/50 rounded-md border">
+                    {message.filePath && (
+                        <div className="px-4 py-2 border-b">
+                            <p className="text-xs font-code text-muted-foreground font-semibold">{message.filePath}</p>
+                        </div>
+                    )}
                     <ScrollArea className="max-h-80">
                       <pre className="p-4 text-sm">
                         <code className="font-code">{message.code}</code>
